@@ -1,0 +1,32 @@
+{
+  "name": "node-red-contrib-tsunami-wav-trigger",
+  "version": "1.0.0",
+  "description": "A Node-RED node to use the magical Tsunami WAV Trigger by Sparkfun and Robertsonics.",
+  "main": "tsunami.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frederic-bonjour/node-red-contrib-tsunami-wav-trigger.git"
+  },
+  "keywords": [
+    "wav",
+    "sound",
+    "sound player"
+  ],
+  "author": "Frédéric Bonjour",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/frederic-bonjour/node-red-contrib-tsunami-wav-trigger.git/issues"
+  },
+  "homepage": "https://github.com/frederic-bonjour/node-red-contrib-tsunami-wav-trigger.git#readme",
+  "node-red": {
+    "nodes": {
+      "tsunami": "tsunami.js"
+    }
+  },
+  "dependencies": {
+    "serialport": "^9.2.0"
+  }
+}
