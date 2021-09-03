@@ -11,16 +11,33 @@ module.exports = function(RED) {
   function TsunamiWavTrigger(config) {
     RED.nodes.createNode(this, config);
 
-    this.trackStatus = [false, false, false, false, false, false, false, false];
     let reconnectTimer;
     let reconnectAllowed = true;
+    
+    const playingStatus = {};
+    
+    const setPlaying = (t) => {
+      playingStatus[`${t}`] = 'playing'
+    }
+
+    const setPaused = (t) => {
+      playingStatus[`${t}`] = 'paused'
+    }
+
+    const setStopped = (t) => {
+      delete playingStatus[`${t}`]
+    }
+
+    const isPlaying = (t) => playingStatus[`${t}`] === 'playing'
+    const isPaused = (t) => playingStatus[`${t}`] === 'paused'
+
 
     const SET_REPORTING = (enabled) => {
       buff = Buffer.alloc(6);
       buff[0] = SOM1;
       buff[1] = SOM2;
-      buff[2] = 6;       // data length
-      buff[3] = 0x0d;    // command: SET_REPORTING
+      buff[2] = 6;    // data length
+      buff[3] = 0x0d; // command: SET_REPORTING
       buff[4] = enabled ? 1 : 0;
       buff[5] = EOM;
       port.write(buff);
@@ -47,7 +64,7 @@ module.exports = function(RED) {
       buff = Buffer.alloc(5);
       buff[0] = SOM1;
       buff[1] = SOM2;
-      buff[2] = 5;   // data length
+      buff[2] = 5;    // data length
       buff[3] = 4;    // command: STOP_ALL
       buff[4] = EOM;
       port.write(buff);
@@ -57,8 +74,8 @@ module.exports = function(RED) {
       buff = Buffer.alloc(9);
       buff[0] = SOM1;
       buff[1] = SOM2;
-      buff[2] = 9;   // data length
-      buff[3] = 8;   // command : TRACK_VOLUME
+      buff[2] = 9;    // data length
+      buff[3] = 8;    // command : TRACK_VOLUME
       buff[4] = track & 0x00ff;
       buff[5] = (track & 0xff00) >> 8;
       buff[6] = volume & 0x00ff;
@@ -113,11 +130,22 @@ module.exports = function(RED) {
 
     port.on('readable', () => {
       buff = port.read();
-      if (buff[3] === 0x84) { // TRACK_REPORT
-        this.trackStatus[buff[4]] = !!buff[7];
-        this.send({ topic: 'reporting', payload: this.trackStatus });
+      const track = buff[4] + (buff[5] << 8) + 1;
+      const status = buff[7];
+      tLog(`reporting: track=${track}, status=${status}`);
+      // TRACK_REPORT
+      if (buff[3] === 0x84) {
+        if (status === 0) { // stopped
+          setStopped(track);
+        } else if (status === 1) {
+          setPlaying(track);
+        }
+        tLog('playingStatus=')
+        tLog(playingStatus)
+        this.send({ topic: 'reporting', payload: { track, status: status ? 'playing' : 'stopped' } });
       }
-      if (buff[3] === 0x82) { // SYSINFO
+      // SYSINFO
+      else if (buff[3] === 0x82) {
         this.send({ topic: 'sysinfo', payload: {
           voices: buff[4],
           tracks: buff[5] + (buff[6] << 8)
@@ -126,34 +154,62 @@ module.exports = function(RED) {
     });
 
     this.on('input', async (msg, send, done) => {
+      const { track, output } = msg.payload;
       switch (msg.topic) {
         case 'play':
-          CONTROL_TRACK(0, msg.payload.track, msg.payload.output);
+          CONTROL_TRACK(0, track, output);
+          send({ topic: 'reporting', payload: { track, status: 'playing' } })
           break;
+
         case 'play_mix':
-          CONTROL_TRACK(1, msg.payload.track, msg.payload.output);
+          if (isPaused(track)) {
+            CONTROL_TRACK(3, track, output);
+            setPlaying(track);
+            send({ topic: 'reporting', payload: { track, status: 'playing' } })
+          }
+          else if (!isPlaying(track)) {
+            CONTROL_TRACK(1, track, output);
+            setPlaying(track);
+            send({ topic: 'reporting', payload: { track, status: 'playing' } })
+          }
           break;
+
         case 'pause':
-          CONTROL_TRACK(2, msg.payload.track, msg.payload.output);
+          if (isPlaying(track)) {
+            CONTROL_TRACK(2, track, output);
+            setPaused(track);
+            send({ topic: 'reporting', payload: { track, status: 'paused' } })
+          }
           break;
+
         case 'resume':
-          CONTROL_TRACK(3, msg.payload.track, msg.payload.output);
+          CONTROL_TRACK(3, track, output);
+          setPlaying(track);
+          send({ topic: 'reporting', payload: { track, status: 'playing' } })
           break;
+
         case 'stop':
-          CONTROL_TRACK(4, msg.payload.track, msg.payload.output);
+          CONTROL_TRACK(4, track, output);
+          setStopped(track);
+          send({ topic: 'reporting', payload: { track, status: 'stopped' } })
           break;
+
         case 'stop_all':
           STOP_ALL();
           break;
+
         case 'loop_on':
-          CONTROL_TRACK(5, msg.payload.track, msg.payload.output);
+          CONTROL_TRACK(5, track, output);
           break;
+
         case 'loop_off':
-          CONTROL_TRACK(6, msg.payload.track, msg.payload.output);
+          CONTROL_TRACK(6, track, output);
           break;
+
         case 'volume':
-          TRACK_VOLUME(msg.payload.track, msg.payload.volume);
+          TRACK_VOLUME(track, msg.payload.volume);
           break;
+
         case 'get_sys_info':
           GET_SYS_INFO();
           break;
