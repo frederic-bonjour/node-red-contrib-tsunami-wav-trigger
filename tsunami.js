@@ -110,6 +110,7 @@ module.exports = function(RED) {
 
     port.on('open', () => {
       this.status({ fill: 'green', shape: 'dot', text: 'connected' });
+      this.send([null, { payload: 'connected' }])
       SET_REPORTING(true);
       if (reconnectTimer) clearInterval(reconnectTimer);
       tLog("connected.");
@@ -118,6 +119,7 @@ module.exports = function(RED) {
     port.on('close', () => {
       tLog("closed");
       this.status({ fill: 'grey', shape: 'dot', text: 'disconnected' });
+      this.send([null, { payload: 'disconnected' }])
       if (reconnectAllowed) {
         reconnectTimer = setInterval(() => reconnect(), config.reconnectInterval || 1000);
       }
@@ -126,6 +128,7 @@ module.exports = function(RED) {
     port.on('error', (err) => {
       tLog(err);
       this.status({ fill: 'red', shape: 'dot', text: 'error' });
+      this.send([null, { payload: 'error' }])
     });
 
     port.on('readable', () => {
@@ -142,14 +145,14 @@ module.exports = function(RED) {
         }
         tLog('playingStatus=')
         tLog(playingStatus)
-        this.send({ topic: 'reporting', payload: { track, status: status ? 'playing' : 'stopped' } });
+        this.send([{ topic: 'reporting', payload: { track, status: status ? 'playing' : 'stopped' } }, null]);
       }
       // SYSINFO
       else if (buff[3] === 0x82) {
-        this.send({ topic: 'sysinfo', payload: {
+        this.send([{ topic: 'sysinfo', payload: {
           voices: buff[4],
           tracks: buff[5] + (buff[6] << 8)
-        }});
+        }}, null]);
       }
     });
 
@@ -158,19 +161,19 @@ module.exports = function(RED) {
       switch (msg.topic) {
         case 'play':
           CONTROL_TRACK(0, track, output);
-          send({ topic: 'reporting', payload: { track, status: 'playing' } })
+          send([{ topic: 'reporting', payload: { track, status: 'playing' } }, null])
           break;
 
         case 'play_mix':
           if (isPaused(track)) {
             CONTROL_TRACK(3, track, output);
             setPlaying(track);
-            send({ topic: 'reporting', payload: { track, status: 'playing' } })
+            send([{ topic: 'reporting', payload: { track, status: 'playing' } }, null])
           }
           else if (!isPlaying(track)) {
             CONTROL_TRACK(1, track, output);
             setPlaying(track);
-            send({ topic: 'reporting', payload: { track, status: 'playing' } })
+            send([{ topic: 'reporting', payload: { track, status: 'playing' } }, null])
           }
           break;
 
@@ -178,20 +181,20 @@ module.exports = function(RED) {
           if (isPlaying(track)) {
             CONTROL_TRACK(2, track, output);
             setPaused(track);
-            send({ topic: 'reporting', payload: { track, status: 'paused' } })
+            send([{ topic: 'reporting', payload: { track, status: 'paused' } }, null])
           }
           break;
 
         case 'resume':
           CONTROL_TRACK(3, track, output);
           setPlaying(track);
-          send({ topic: 'reporting', payload: { track, status: 'playing' } })
+          send([{ topic: 'reporting', payload: { track, status: 'playing' } }, null])
           break;
 
         case 'stop':
           CONTROL_TRACK(4, track, output);
           setStopped(track);
-          send({ topic: 'reporting', payload: { track, status: 'stopped' } })
+          send([{ topic: 'reporting', payload: { track, status: 'stopped' } }, null])
           break;
 
         case 'stop_all':
