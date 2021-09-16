@@ -14,35 +14,6 @@ module.exports = function(RED) {
     let reconnectTimer;
     let reconnectAllowed = true;
     
-    const playingStatus = {};
-    
-    const setPlaying = (t) => {
-      playingStatus[`${t}`] = 'playing'
-    }
-
-    const setPaused = (t) => {
-      playingStatus[`${t}`] = 'paused'
-    }
-
-    const setStopped = (t) => {
-      delete playingStatus[`${t}`]
-    }
-
-    const isPlaying = (t) => playingStatus[`${t}`] === 'playing'
-    const isPaused = (t) => playingStatus[`${t}`] === 'paused'
-
-
-    const SET_REPORTING = (enabled) => {
-      buff = Buffer.alloc(6);
-      buff[0] = SOM1;
-      buff[1] = SOM2;
-      buff[2] = 6;    // data length
-      buff[3] = 0x0d; // command: SET_REPORTING
-      buff[4] = enabled ? 1 : 0;
-      buff[5] = EOM;
-      port.write(buff);
-    };
-
     const CONTROL_TRACK = (controlCode, track, output) => {
       trackLSB = track & 0x00ff;
       trackMSB = (track & 0xff00) >> 8;
@@ -110,8 +81,7 @@ module.exports = function(RED) {
 
     port.on('open', () => {
       this.status({ fill: 'green', shape: 'dot', text: 'connected' });
-      this.send([null, { payload: 'connected' }])
-      SET_REPORTING(true);
+      this.send({ topic: 'status', payload: 'connected' })
       if (reconnectTimer) clearInterval(reconnectTimer);
       tLog("connected.");
     });
@@ -119,7 +89,7 @@ module.exports = function(RED) {
     port.on('close', () => {
       tLog("closed");
       this.status({ fill: 'grey', shape: 'dot', text: 'disconnected' });
-      this.send([null, { payload: 'disconnected' }])
+      this.send({ topic: 'status', payload: 'disconnected' })
       if (reconnectAllowed) {
         reconnectTimer = setInterval(() => reconnect(), config.reconnectInterval || 1000);
       }
@@ -128,73 +98,31 @@ module.exports = function(RED) {
     port.on('error', (err) => {
       tLog(err);
       this.status({ fill: 'red', shape: 'dot', text: 'error' });
-      this.send([null, { payload: 'error' }])
+      this.send({ topic: 'status', payload: 'error' })
     });
 
-    port.on('readable', () => {
-      buff = port.read();
-      const track = buff[4] + (buff[5] << 8) + 1;
-      const status = buff[7];
-      tLog(`reporting: track=${track}, status=${status}`);
-      // TRACK_REPORT
-      if (buff[3] === 0x84) {
-        if (status === 0) { // stopped
-          setStopped(track);
-        } else if (status === 1) {
-          setPlaying(track);
-        }
-        tLog('playingStatus=')
-        tLog(playingStatus)
-        this.send([{ topic: 'reporting', payload: { track, status: status ? 'playing' : 'stopped' } }, null]);
-      }
-      // SYSINFO
-      else if (buff[3] === 0x82) {
-        this.send([{ topic: 'sysinfo', payload: {
-          voices: buff[4],
-          tracks: buff[5] + (buff[6] << 8)
-        }}, null]);
-      }
-    });
-
+    
     this.on('input', async (msg, send, done) => {
       const { track, output } = msg.payload;
       switch (msg.topic) {
         case 'play':
           CONTROL_TRACK(0, track, output);
-          send([{ topic: 'reporting', payload: { track, status: 'playing' } }, null])
           break;
 
         case 'play_mix':
-          if (isPaused(track)) {
-            CONTROL_TRACK(3, track, output);
-            setPlaying(track);
-            send([{ topic: 'reporting', payload: { track, status: 'playing' } }, null])
-          }
-          else if (!isPlaying(track)) {
-            CONTROL_TRACK(1, track, output);
-            setPlaying(track);
-            send([{ topic: 'reporting', payload: { track, status: 'playing' } }, null])
-          }
+          CONTROL_TRACK(1, track, output);
           break;
 
         case 'pause':
-          if (isPlaying(track)) {
-            CONTROL_TRACK(2, track, output);
-            setPaused(track);
-            send([{ topic: 'reporting', payload: { track, status: 'paused' } }, null])
-          }
+          CONTROL_TRACK(2, track, output);
           break;
 
         case 'resume':
           CONTROL_TRACK(3, track, output);
-          setPlaying(track);
-          send([{ topic: 'reporting', payload: { track, status: 'playing' } }, null])
           break;
 
         case 'stop':
           CONTROL_TRACK(4, track, output);
-          setStopped(track);
-          send([{ topic: 'reporting', payload: { track, status: 'stopped' } }, null])
           break;
 
         case 'stop_all':
