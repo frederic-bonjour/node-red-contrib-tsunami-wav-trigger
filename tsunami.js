@@ -5,7 +5,7 @@ module.exports = function(RED) {
   const SOM1 = 0xf0;
   const SOM2 = 0xaa;
   const EOM  = 0x55;
-  
+
   const tLog = (data) => console.log("Tsunami:", data);
 
   function TsunamiWavTrigger(config) {
@@ -13,7 +13,7 @@ module.exports = function(RED) {
 
     let reconnectTimer;
     let reconnectAllowed = true;
-    
+
     const CONTROL_TRACK = (controlCode, track, output) => {
       trackLSB = track & 0x00ff;
       trackMSB = (track & 0xff00) >> 8;
@@ -41,6 +41,24 @@ module.exports = function(RED) {
       port.write(buff);
     };
 
+    const TRACK_FADE = (track, volume, duration) => {
+      buff = Buffer.alloc(12);
+      buff[0] = SOM1;
+      buff[1] = SOM2;
+      buff[2] = 12;      // data length
+      buff[3] = 0x0a;    // command : TRACK_FADE
+      buff[4] = track & 0x00ff;
+      buff[5] = (track & 0xff00) >> 8;
+      buff[6] = volume & 0x00ff;
+      buff[7] = (volume & 0xff00) >> 8;
+      buff[8] = duration & 0x00ff;
+      buff[9] = (duration & 0xff00) >> 8;
+      buff[10] = 0; // do NOT stop track when fade is complete
+      buff[11] = EOM;
+      port.write(buff);
+console.log('track fade', track, volume, duration);
+    };
+
     const TRACK_VOLUME = (track, volume) => {
       buff = Buffer.alloc(9);
       buff[0] = SOM1;
@@ -53,6 +71,20 @@ module.exports = function(RED) {
       buff[7] = (volume & 0xff00) >> 8;
       buff[8] = EOM;
       port.write(buff);
+    };
+
+    const OUTPUT_VOLUME = (output, volume) => {
+      buff = Buffer.alloc(9);
+      buff[0] = SOM1;
+      buff[1] = SOM2;
+      buff[2] = 8;    // data length
+      buff[3] = 5;    // command : TRACK_VOLUME
+      buff[4] = output;
+      buff[5] = volume & 0x00ff;
+      buff[6] = (volume & 0xff00) >> 8;
+      buff[7] = EOM;
+      port.write(buff);
+      console.log(`Set volume of output ${output} to ${volume}.`)
     };
 
     const GET_SYS_INFO = () => {
@@ -101,7 +133,7 @@ module.exports = function(RED) {
       this.send({ topic: 'status', payload: 'error' })
     });
 
-    
+
     this.on('input', async (msg, send, done) => {
       const { track, output } = msg.payload;
       switch (msg.topic) {
@@ -139,6 +171,14 @@ module.exports = function(RED) {
 
         case 'volume':
           TRACK_VOLUME(track, msg.payload.volume);
+          break;
+
+        case 'fade':
+          TRACK_FADE(track, msg.payload.volume, msg.duration || 2000);
+          break;
+
+        case 'output_volume':
+          OUTPUT_VOLUME(output, msg.payload.volume);
           break;
 
         case 'get_sys_info':
